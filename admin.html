@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1f2a37">
+  <meta name="robots" content="noindex">
+  <title>店家後台</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js"></script>
+  <script src="lib/qrcode.min.js"></script>
+  <script type="module" src="admin.js"></script>
+</head>
+<body class="admin">
+  <header class="top">
+    <div class="top-row">
+      <h1 id="shopName">店家後台</h1>
+      <div class="top-actions" id="topActions" hidden>
+        <button type="button" class="switch" id="openToggle"></button>
+        <button type="button" class="icon-btn" id="soundToggle" title="新訂單提示音"></button>
+      </div>
+    </div>
+  </header>
+
+  <div class="banner" id="offline" hidden>連線中斷,重新連線中…(恢復後會自動更新)</div>
+  <div class="banner warn" id="audioHint" hidden>點一下畫面任何地方,啟用新訂單提示音</div>
+
+  <nav class="tabs" id="tabs" hidden>
+    <button type="button" data-tab="unpaid">未付款<span class="badge" id="unpaidBadge" hidden></span></button>
+    <button type="button" data-tab="kitchen">待出餐<span class="badge info" id="kitchenBadge" hidden></span></button>
+    <button type="button" data-tab="history">訂單紀錄</button>
+    <button type="button" data-tab="menu">菜單</button>
+    <button type="button" data-tab="settings">設定</button>
+  </nav>
+
+  <main class="wide">
+    <div class="loading" id="loading"><div class="spinner"></div>載入中…</div>
+    <div class="fatal" id="fatal" hidden>
+      <p id="fatalMsg"></p>
+      <button type="button" class="ghost" id="fatalRetry">重新整理</button>
+    </div>
+
+    <section class="narrow" id="login" hidden>
+      <form class="card" id="loginForm">
+        <h2>店家登入</h2>
+        <label>Email<input type="email" id="loginEmail" autocomplete="username" required></label>
+        <label>密碼<input type="password" id="loginPw" autocomplete="current-password" required></label>
+        <p class="error" id="loginError"></p>
+        <button type="submit" class="primary full" id="loginBtn">登入</button>
+        <p class="hint" id="demoHint" hidden>示範模式:直接按「登入」即可。</p>
+      </form>
+    </section>
+
+    <section class="narrow" id="notAdmin" hidden>
+      <div class="card">
+        <h2>這個帳號還沒有店家權限</h2>
+        <p>請把下面這串 UID 加到 Firebase 的 <code>admins</code>(做法見 README 第三步),再重新整理這一頁。</p>
+        <p class="uid" id="myUid"></p>
+        <p class="hint" id="myEmail"></p>
+        <button type="button" class="ghost" id="notAdminLogout">登出</button>
+      </div>
+    </section>
+
+    <!-- 未付款 -->
+    <section class="tab" id="tab-unpaid" hidden>
+      <div class="toolbar"><span id="unpaidSummary"></span></div>
+      <div class="chips" id="tableFilter" hidden></div>
+      <div class="orders-grid" id="unpaidList"></div>
+      <p class="empty" id="unpaidEmpty" hidden>目前沒有未付款的訂單 🎉</p>
+    </section>
+
+    <!-- 待出餐:已付款、還沒出餐 -->
+    <section class="tab" id="tab-kitchen" hidden>
+      <div class="toolbar">
+        <span id="kitchenSummary"></span>
+        <button type="button" class="ghost small" id="serveAll" hidden>全部標為已出餐</button>
+      </div>
+      <div class="orders-grid" id="kitchenList"></div>
+      <p class="empty" id="kitchenEmpty" hidden>沒有待出餐的訂單</p>
+    </section>
+
+    <!-- 訂單紀錄 -->
+    <section class="tab" id="tab-history" hidden>
+      <div class="toolbar">
+        <div class="day-nav">
+          <button type="button" class="icon-btn" id="dayPrev" aria-label="前一天">‹</button>
+          <input type="date" id="dayPick">
+          <button type="button" class="icon-btn" id="dayNext" aria-label="後一天">›</button>
+        </div>
+        <button type="button" class="ghost small" id="exportCsv">匯出 CSV</button>
+      </div>
+      <div class="stats" id="dayStats"></div>
+      <div class="chips" id="dayFilter"></div>
+      <div id="dayList"></div>
+    </section>
+
+    <!-- 菜單 -->
+    <section class="tab" id="tab-menu" hidden>
+      <div class="toolbar">
+        <span id="menuSummary"></span>
+        <button type="button" class="primary small" id="addItem">+ 新增品項</button>
+      </div>
+      <div id="menuList"></div>
+    </section>
+
+    <!-- 設定 -->
+    <section class="tab" id="tab-settings" hidden>
+      <h3 class="step">店家資訊</h3>
+      <form class="card" id="settingsForm">
+        <label>店名<input type="text" id="setShopName" maxlength="30"></label>
+        <label>店名下方的說明<input type="text" id="setTagline" maxlength="60" placeholder="例:掃碼點餐 · 同桌共用購物車"></label>
+        <label>付款方式(用逗號分隔;留空 = 客人不用選)<input type="text" id="setPayMethods" placeholder="現金,LINE Pay,街口支付"></label>
+        <label>付款提示(確認餐點和送出訂單後都會顯示給客人)
+          <textarea id="setPayNote" rows="2" maxlength="120" placeholder="請先至櫃台付款,付款完成後開始為您製作。"></textarea></label>
+        <label>菜單分類順序(用逗號分隔)<input type="text" id="setCategories" placeholder="麵食,飯類,小菜,飲料"></label>
+        <p class="hint" id="catHint"></p>
+        <label>暫停接單時顯示的說明<input type="text" id="setClosedNote" maxlength="60" placeholder="例:今日已售完,謝謝光臨"></label>
+        <button type="submit" class="primary full" id="saveSettings">儲存設定</button>
+      </form>
+
+      <h3 class="step">桌號與 QR Code</h3>
+      <p class="hint">每一桌一個 QR Code,客人掃了就會以那一桌的身分點餐;同一桌的手機共用購物車。外帶 QR 則是每支手機各自點。</p>
+      <div class="toolbar wrap">
+        <button type="button" class="ghost small" id="addTable">+ 新增桌號</button>
+        <button type="button" class="ghost small" id="addTakeout">+ 新增外帶 QR</button>
+        <button type="button" class="primary small" id="printQr">列印全部 QR Code</button>
+      </div>
+      <div class="qr-grid" id="tableList"></div>
+
+      <h3 class="step">帳號</h3>
+      <div class="card account">
+        <div><div id="accountEmail"></div><div class="hint" id="accountUid"></div></div>
+        <button type="button" class="ghost small" id="logout">登出</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- 品項編輯 -->
+  <section class="sheet" id="editor" hidden>
+    <header class="sheet-head">
+      <button type="button" class="back" id="edClose">‹ 返回</button>
+      <h2 id="edTitle">編輯品項</h2>
+    </header>
+    <form class="sheet-body" id="edForm">
+      <div class="ed-img">
+        <div class="thumb xl" id="edPreview"><span></span></div>
+        <div class="ed-img-btns">
+          <label class="ghost small file-btn">📷 拍照 / 選圖片<input type="file" accept="image/*" id="edFile"></label>
+          <button type="button" class="ghost small" id="edRemoveImg">移除圖片</button>
+        </div>
+      </div>
+      <label>或貼上圖片網址(Google 雲端硬碟分享連結也可以)<input type="url" id="edImgUrl" placeholder="https://"></label>
+      <label>品名<input type="text" id="edName" maxlength="40" required></label>
+      <label>價格(元)<input type="text" id="edPrice" inputmode="numeric" pattern="[0-9]*" maxlength="6" required></label>
+      <label>分類<input type="text" id="edCategory" maxlength="20" list="catList" placeholder="例:麵食"></label>
+      <datalist id="catList"></datalist>
+      <label>說明(選填)<textarea id="edDesc" rows="2" maxlength="80" placeholder="例:清燉湯頭、半筋半肉"></textarea></label>
+      <label class="check"><input type="checkbox" id="edAvailable"> 供應中(取消勾選 = 售完,客人看得到但不能點)</label>
+    </form>
+    <footer class="sheet-foot">
+      <button type="button" class="danger" id="edDelete">刪除</button>
+      <button type="button" class="primary big" id="edSave">儲存</button>
+    </footer>
+  </section>
+
+  <div id="printArea"></div>
+
+  <div class="modal" id="modal" hidden>
+    <div class="modal-box">
+      <div id="modalBody"></div>
+      <div class="modal-actions" id="modalActions"></div>
+    </div>
+  </div>
+  <div class="toast" id="toast" hidden></div>
+</body>
+</html>
